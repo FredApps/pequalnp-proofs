@@ -113,7 +113,7 @@ jobs:
           python -m pip list 2>/dev/null | grep -iE 'python-sat|pysat|numpy|ortools' || true
       - name: Search
         run: |
-          set -u
+          set -u +e +o pipefail
           case "$SCRIPT" in searches/*.py) ;; *) echo "script must be searches/...py"; exit 2;; esac
           case "$SCRIPT" in *..*) echo "no .. in script path"; exit 2;; esac
           [ -f "$SCRIPT" ] || { echo "missing $SCRIPT"; exit 2; }
@@ -126,13 +126,14 @@ jobs:
           printf '%s\n' "$SCRIPT" "${ARGS[@]}" > "$OUT_DIR/cmdline.txt"
           nproc > "$OUT_DIR/nproc.txt"
           START=$(date +%s)
+          RC=0
           timeout --signal=TERM --kill-after=60 "$((TIMEOUT_MIN*60))" \
-            python -u "$SCRIPT" "${ARGS[@]}" > "$OUT_DIR/stdout.txt" 2> "$OUT_DIR/stderr.txt"
-          RC=$?
+            python -u "$SCRIPT" "${ARGS[@]}" > "$OUT_DIR/stdout.txt" 2> "$OUT_DIR/stderr.txt" || RC=$?
           echo "$RC" > "$OUT_DIR/exit_code"
           echo "$(( $(date +%s) - START ))" > "$OUT_DIR/seconds"
           if [ "$RC" = 124 ] || [ "$RC" = 137 ]; then STATUS=TIMEOUT; else
             STATUS=$(grep -oE '^RESULT: *[A-Z_]+' "$OUT_DIR/stdout.txt" | tail -1 | sed 's/RESULT: *//'); STATUS=${STATUS:-rc$RC}; fi
+          [ "$RC" = 0 ] || [ "$STATUS" = TIMEOUT ] || STATUS="ERROR_rc$RC"
           echo "$STATUS" > "$OUT_DIR/status"
           echo "shard $SHARD: $STATUS rc=$RC $(cat "$OUT_DIR/seconds")s sha256=$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
           tail -c 4000 "$OUT_DIR/stdout.txt"
