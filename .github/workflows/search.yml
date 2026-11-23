@@ -1,0 +1,173 @@
+# Compute offload for pequalnp SAT / CEGAR searches (branch `compute` of the FredApps fork only).
+# Never merge this into main or into any submit branch. Never part of a PR to brilliant-hq.
+#
+# Dispatch:  gh workflow run search.yml -R FredApps/pequalnp-proofs --ref compute \
+#              -f script=searches/L-meta-982/cegar.py -f args='--shard {shard} --solver {solver}' \
+#              -f shards=0-19 -f solver=cadical153 -f timeout=340 -f tag=L-meta-982
+# In args, {shard} and {solver} are replaced per job; the job also gets env SHARD, SOLVER, OUT_DIR.
+# Anything the script writes into $OUT_DIR is uploaded with stdout/stderr, the exit code and the
+# sha256 of the script (the `program=` value for a desk `exhausted` release).
+name: search
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Python script path inside the compute branch, e.g. searches/L-meta-982/cegar.py
+        required: true
+        type: string
+      args:
+        description: Arguments; {shard} and {solver} are substituted (whitespace split, no shell)
+        required: false
+        default: '{shard}'
+        type: string
+      shards:
+        description: Shard list, e.g. 0-19 or 0,3,7 or 4-7,12 (one matrix job per shard, max 256)
+        required: false
+        default: '0'
+        type: string
+      solver:
+        description: Solver name passed through (pysat names, e.g. cadical153, glucose4, kissat via pip)
+        required: false
+        default: cadical153
+        type: string
+      timeout:
+        description: Minutes the script may run per shard (max 345; the job hard limit is 6 h)
+        required: false
+        default: '340'
+        type: string
+      pip:
+        description: Extra pip packages, space separated
+        required: false
+        default: 'python-sat'
+        type: string
+      tag:
+        description: Free label (usually the step id), shown in the run name
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [compute]
+    paths: ['.github/workflows/search.yml']
+
+run-name: "search ${{ inputs.tag }} ${{ inputs.script }} [${{ inputs.shards }}]"
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          set -eu
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, json, re, sys
+          spec = os.environ['SHARDS'].replace(' ', '')
+          if not re.fullmatch(r'\d+(-\d+)?(,\d+(-\d+)?)*', spec):
+              sys.exit('bad shards spec: ' + spec)
+          out = []
+          for part in spec.split(','):
+              a, _, b = part.partition('-')
+              out += list(range(int(a), int(b or a) + 1))
+          out = sorted(set(out))
+          if len(out) > 256:
+              sys.exit('more than 256 shards in one dispatch')
+          print('matrix=' + json.dumps({'shard': out}))
+          PY
+
+  run:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      SCRIPT: ${{ inputs.script }}
+      ARGS_IN: ${{ inputs.args }}
+      SOLVER: ${{ inputs.solver }}
+      TIMEOUT_MIN: ${{ inputs.timeout }}
+      PIP_PKGS: ${{ inputs.pip }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          set -eu
+          read -r -a PKGS <<< "$PIP_PKGS"
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet "${PKGS[@]}"
+          python -m pip list 2>/dev/null | grep -iE 'python-sat|pysat|numpy|ortools' || true
+      - name: Search
+        run: |
+          set -u
+          case "$SCRIPT" in searches/*.py) ;; *) echo "script must be searches/...py"; exit 2;; esac
+          case "$SCRIPT" in *..*) echo "no .. in script path"; exit 2;; esac
+          [ -f "$SCRIPT" ] || { echo "missing $SCRIPT"; exit 2; }
+          [[ "$TIMEOUT_MIN" =~ ^[0-9]+$ ]] && [ "$TIMEOUT_MIN" -le 345 ] || { echo "bad timeout"; exit 2; }
+          export OUT_DIR="$PWD/out/shard-$SHARD"; mkdir -p "$OUT_DIR"
+          read -r -a ARGS <<< "$ARGS_IN"
+          for i in "${!ARGS[@]}"; do ARGS[$i]="${ARGS[$i]//\{shard\}/$SHARD}"; ARGS[$i]="${ARGS[$i]//\{solver\}/$SOLVER}"; done
+          SHA=$(sha256sum "$SCRIPT" | cut -d' ' -f1)
+          echo "$SHA" > "$OUT_DIR/program.sha256"
+          printf '%s\n' "$SCRIPT" "${ARGS[@]}" > "$OUT_DIR/cmdline.txt"
+          nproc > "$OUT_DIR/nproc.txt"
+          START=$(date +%s)
+          timeout --signal=TERM --kill-after=60 "$((TIMEOUT_MIN*60))" \
+            python -u "$SCRIPT" "${ARGS[@]}" > "$OUT_DIR/stdout.txt" 2> "$OUT_DIR/stderr.txt"
+          RC=$?
+          echo "$RC" > "$OUT_DIR/exit_code"
+          echo "$(( $(date +%s) - START ))" > "$OUT_DIR/seconds"
+          if [ "$RC" = 124 ] || [ "$RC" = 137 ]; then STATUS=TIMEOUT; else
+            STATUS=$(grep -oE '^RESULT: *[A-Z_]+' "$OUT_DIR/stdout.txt" | tail -1 | sed 's/RESULT: *//'); STATUS=${STATUS:-rc$RC}; fi
+          echo "$STATUS" > "$OUT_DIR/status"
+          echo "shard $SHARD: $STATUS rc=$RC $(cat "$OUT_DIR/seconds")s sha256=$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          tail -c 4000 "$OUT_DIR/stdout.txt"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: out/
+          retention-days: 14
+
+  summary:
+    needs: run
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: all
+          merge-multiple: true
+      - run: |
+          set -u
+          { echo "| shard | status | rc | seconds | program sha256 |"; echo "|---|---|---|---|---|"
+            for d in all/shard-*; do s=${d#all/shard-}
+              echo "| $s | $(cat $d/status 2>/dev/null) | $(cat $d/exit_code 2>/dev/null) | $(cat $d/seconds 2>/dev/null) | $(cat $d/program.sha256 2>/dev/null) |"
+            done | sort -t'|' -k2 -n; } | tee summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: summary.md
+
+  registered:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: echo "search.yml registered on branch compute; dispatch it with --ref compute"
