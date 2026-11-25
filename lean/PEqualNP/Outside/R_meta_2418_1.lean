@@ -1,9 +1,8 @@
 import Mathlib
 import PEqualNP.Defs
 
-set_option maxHeartbeats 1600000
-
 -- Split L-meta-2418 on whether C already has line-degree at most 1.
+set_option maxHeartbeats 1600000 in
 theorem PEqualNP.Outside.R_meta_2418_1
     (already :
       let diff : Finset (Fin 13) := {0, 1, 3, 9}
