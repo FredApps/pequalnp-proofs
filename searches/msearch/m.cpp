@@ -56,8 +56,7 @@ static C fresh(bool useSeed){C p;if(useSeed&&seeded(p))return p;for(int i=0;i<N;
 int main(int argc,char**argv){
   FILE*f=fopen(argv[1],"r");
   int NS;if(!f||fscanf(f,"%d %d %d %d %d",&NI,&BOUND,&NE,&NM,&NS)!=5)return 2;
-  ROWS=NE+NM;NW=(ROWS+63)/64;if(NW>K||NI>32){printf("too large rows=%d
-",ROWS);return 3;}
+  ROWS=NE+NM;NW=(ROWS+63)/64;if(NW>K||NI>32){printf("too large rows=%d\n",ROWS);return 3;}
   for(int r=0;r<ROWS;r++){unsigned long long m;if(fscanf(f,"%llu",&m)!=1)return 2;
     for(int i=0;i<NI;i++)if(m>>i&1)IN[i].w[r/64]|=1ULL<<(r%64);if(r<NE)T.w[r/64]|=1ULL<<(r%64);}
   for(int k=0;k<NS;k++){G g;if(fscanf(f,"%d %d %d",&g.op,&g.a,&g.b)!=3)return 2;SG.push_back(g);}
