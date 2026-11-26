@@ -102,7 +102,7 @@ def solve(g,k,fixed,orbits,seed,budget):
     mp=lambda l:perm[abs(l)-1]*(1 if l>0 else -1)
     inv={perm[v-1]:v for v in range(1,nv[0]+1)}
     rng.shuffle(cl)
-    s=Solver(name=['cadical153','glucose4','maplechrono'][seed%3],bootstrap_with=[[mp(l) for l in c] for c in cl])
+    s=Solver(name=['glucose4','glucose3','maplechrono'][seed%3],bootstrap_with=[[mp(l) for l in c] for c in cl])
     s.set_phases([v if rng.random()<0.3 else -v for v in range(1,nv[0]+1)]) if seed%3!=2 else None
     timer=threading.Timer(budget,s.interrupt);timer.start()
     r=s.solve_limited(expect_interrupt=True);timer.cancel()
