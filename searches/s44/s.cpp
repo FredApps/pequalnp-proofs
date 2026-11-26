@@ -39,7 +39,7 @@ int main(int argc,char**argv){
         if(r<3)d[i]=rg(i);else if(r<6)d[i].a=rnd(8+i);else if(r<9)d[i].b=rnd(8+i);else d[i].op=rnd(10)<2?2:(int)rnd(2);}
       if(rnd(10)==0)o=8+rnd(M);
       int s=score(d,o);
-      bool take = s/100>=cur/100 ? (s>-100) : rnd(20000)==0&&s>-100;
+      bool take = (s+99)/100>=(cur+99)/100 ? (s>-100) : rnd(20000)==0&&s>-100;
       if(take){memcpy(c,d,sizeof(G)*M);out=o;cur=s;}
       if(s>-100&&(s+99)/100>=16&&s>=1500){
         int sc=(s+99)/100;
