@@ -75,15 +75,13 @@ static int weighted(double secs){
       if((j&1023)==1023){u64 y=pw;while(y){w[__builtin_ctzll(y)]++;y&=y-1;}
         if((j&0x3ffff)==0x3ffff)for(int r=0;r<40;r++)w[r]=1+w[r]/2;
         ps=sc(pw,pa,pm);}
-      if(pa<=21){int e=__builtin_popcountll(pw)+(3-pm);if(e<beste){beste=e;printf("wbest e=%d
-",e);fflush(stdout);}
+      if(pa<=21){int e=__builtin_popcountll(pw)+(3-pm);if(e<beste){beste=e;printf("wbest e=%d\n",e);fflush(stdout);}
         if(!pw&&pm>=3){dump(p,pa,pm);if(++found>=1)return 0;break;}}
       if((j&0xfffff)==0&&difftime(time(0),t0)>=secs)break;
     }
     restarts++;
   }
-  printf("wdone restarts=%d best=%d
-",restarts,beste);return 0;
+  printf("wdone restarts=%d best=%d\n",restarts,beste);return 0;
 }
 int main(int argc,char**argv){
   int shard=atoi(argv[1]);double secs=atof(argv[2]);
